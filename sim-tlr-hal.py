@@ -4,11 +4,13 @@
 
 import math
 import asyncio
-from aiohttp import web
 import io
 import random
-from matplotlib import pyplot as plt
 import collections
+
+from aiohttp import web
+from aiohttp_swagger import setup_swagger
+from matplotlib import pyplot as plt
 
 
 class LibraryError(Exception):
@@ -377,18 +379,18 @@ async def map_page(request):
     text = """<html>
     <head>
     <style>
-.flex-container {
-    display: flex;
-}
+    .flex-container {
+        display: flex;
+    }
 
-.flex-child {
-    flex: 1;
-    border: 1px solid blue;
-}
+    .flex-child {
+        flex: 1;
+        border: 1px solid blue;
+    }
 
-.flex-child:first-child {
-    margin-right: 20px;
-}
+    .flex-child:first-child {
+        margin-right: 20px;
+    }
 
     </style>
     <script type="text/JavaScript">
@@ -441,83 +443,81 @@ async def map_page(request):
 
     <body onload="JavaScript:init();">
 
-<div class="flex-container">
+    <div class="flex-container">
 
-  <div class="flex-child magenta">
+    <div class="flex-child magenta">
 
     Monitoring
 
     <div>
-    <canvas id="canvas"/>
-    </div>
-    <div>
-    <textarea id="logTextarea" name="something" rows="8" cols="100">
-    This text gets removed</textarea>
-    </div>
+      <canvas id="canvas"/>
+      </div>
+      <div>
+      <textarea id="logTextarea" name="something" rows="8" cols="100">
+      This text gets removed</textarea>
+      </div>
 
-  </div>
+      </div>
 
-  <div class="flex-child green">
-    Control
+      <div class="flex-child green">
+        Control
 
-    <div>
-    <iframe name="hiddenFrame"></iframe>
-    </div>
-    Actions:
-    <div>
-      <form action="/load" target="hiddenFrame">
-        <input type="submit" value="load">
-        <label for="slot">from slot</label>
-        <input type="text" id="slot" name="slot" value="">
-        <label for="drive">to drive</label>
-        <input type="text" id="drive" name="drive" value=""><br><br>
-      </form>
-    </div>
-    <div>
-      <form action="/unload" target="hiddenFrame">
-        <input type="submit" value="unload">
-        <label for="slot">to slot</label>
-        <input type="text" id="slot" name="slot" value="">
-        <label for="drive">from drive</label>
-        <input type="text" id="drive" name="drive" value=""><br><br>
-      </form>
-    </div>
-    <div>
-      <form action="/transfer" target="hiddenFrame">
-        <input type="submit" value="transfer">
-        <label for="slot">from slot</label>
-        <input type="text" id="slot" name="slot" value="">
-        <label for="slot">to slot</label>
-        <input type="text" id="targetslot" name="targetslot" value=""><br><br>
-      </form>
-    </div>
-    <div>
-      <form action="/scan" target="hiddenFrame">
-        <input type="submit" value="scan">
-        <label for="slot">slot</label>
-        <input type="text" id="slot" name="slot" value="">
-      </form>
-    </div>
-    <div>
-      <form action="/stop" target="hiddenFrame">
-        <input type="submit" value="stop">
-      </form>
-      <form action="/resume" target="hiddenFrame">
-        <input type="submit" value="resume">
-      </form>
-      <form action="/park" target="hiddenFrame">
-        <input type="submit" value="park">
-      </form>
-    </div>
+        <div>
+          <iframe name="hiddenFrame"></iframe>
+        </div>
+        Actions:
+        <div>
+          <form action="/load" target="hiddenFrame">
+            <input type="submit" value="load">
+            <label for="slot">from slot</label>
+            <input type="text" id="slot" name="slot" value="">
+            <label for="drive">to drive</label>
+            <input type="text" id="drive" name="drive" value=""><br><br>
+          </form>
+        </div>
+        <div>
+          <form action="/unload" target="hiddenFrame">
+            <input type="submit" value="unload">
+            <label for="slot">to slot</label>
+            <input type="text" id="slot" name="slot" value="">
+            <label for="drive">from drive</label>
+            <input type="text" id="drive" name="drive" value=""><br><br>
+          </form>
+        </div>
+        <div>
+          <form action="/transfer" target="hiddenFrame">
+            <input type="submit" value="transfer">
+            <label for="slot">from slot</label>
+            <input type="text" id="slot" name="slot" value="">
+            <label for="slot">to slot</label>
+            <input type="text" id="targetslot" name="targetslot" value=""><br><br>
+          </form>
+        </div>
+        <div>
+          <form action="/scan" target="hiddenFrame">
+            <input type="submit" value="scan">
+            <label for="slot">slot</label>
+            <input type="text" id="slot" name="slot" value="">
+          </form>
+        </div>
+        <div>
+          <form action="/stop" target="hiddenFrame">
+            <input type="submit" value="stop">
+          </form>
+          <form action="/resume" target="hiddenFrame">
+            <input type="submit" value="resume">
+          </form>
+          <form action="/park" target="hiddenFrame">
+            <input type="submit" value="park">
+          </form>
+        </div>
 
-  </div>
+      </div>
 
-</div>
-
+    </div>
+    <a href=/api/doc>Swagger API doc</a>
     </body>
-    </html>
-
-    """
+    </html>"""
     return web.Response(text=text.strip(), content_type="text/html")
 
 
@@ -529,6 +529,19 @@ async def sim_runner(app):
 
 
 async def map_page1(request):
+    """
+    ---
+    description: This end-point allow to test that service is up.
+    tags:
+    - Health check
+    produces:
+    - text/plain
+    responses:
+        "200":
+            description: successful operation. Return "pong" text
+        "405":
+            description: invalid HTTP Method
+    """
 
     request.app["tape_library"].move()
     text = """<html><head>
@@ -559,6 +572,42 @@ async def handle(request):
 async def start_background_tasks(app):
     app["sim_runner"] = asyncio.Task(sim_runner(app))
 
+# Handlers that represent the system we simulate.
+async def load_handle(request):
+    """
+    ---
+    description: Load media from <slot> to <drive>.
+    tags:
+    - mtx
+    produces:
+    - text/plain
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    text = library.action_load(**request.query)
+    return web.Response(text=text)
+
+async def unload_handle(request):
+    """
+    ---
+    description: Unload media from <drive> to <slot>.
+    tags:
+    - mtx
+    produces:
+    - text/plain
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    text = library.action_unload(**request.query)
+    return web.Response(text=text)
 
 app = web.Application()
 app["tape_library"] = Library()
@@ -568,9 +617,12 @@ app.add_routes(
         web.get("/", map_page),
         web.get("/show.png", map_img),
         web.get("/log", log_page),
+        web.get("/load", load_handle),
+        web.get("/unload", unload_handle),
         web.get("/{name}", handle),
     ]
 )
 
 if __name__ == "__main__":
+    setup_swagger(app)
     web.run_app(app)
