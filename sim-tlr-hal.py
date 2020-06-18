@@ -123,6 +123,43 @@ class Drive(BaseSlot):
         return 3 + self.row * 6
 
 
+class LibraryConfig(dict):
+    def load(self):
+        pass
+
+    def save(self):
+        pass
+
+    def report(self):
+        return dict(self)
+
+
+class LibrarySensors:
+    def __init__(self):
+        self._sensors = {}
+        self.register("door-open", bool, False)
+        self.register("temperature-a23", int, 33)
+        self.register("temperature-a51", float, 23.2)
+
+    def set(self, name, value):
+        self._sensors[name]["value"] = self._sensors[name]["type"](value)
+
+    def get(self, name, value):
+        return self._sensors[name]["value"]
+
+    def register(self, name, sensor_type, default):
+        self._sensors[name] = {"type": sensor_type, "value": sensor_type(default)}
+
+    def get_all(self):
+        out = {}
+        for name, sensor in self._sensors.items():
+            out[name] = sensor['value']
+        return out
+
+    def report(self):
+        return self.get_all()
+
+
 class Library:
     def __init__(self):
         self._x = 30
@@ -133,21 +170,25 @@ class Library:
         self.drives = {}
         self.access_slots = {}
         self.pickers = {}
-        self.setup()
-        self.running = True
+        self.inventory = {}
+        self.last_error = None
         self.task = None
         self.tasks = collections.deque()
-        self.last_error = None
+        self.running = False
+        self.setup()
+        self.sensors = LibrarySensors()
+        self.config = LibraryConfig()
 
     def setup(self):
         picker = Picker(0, 0)
         self.pickers["p"] = picker
-        for ee in range(6):
-            accessslot = AccessSlot(0, ee)
-            self.access_slots[accessslot.name] = accessslot
+        # for ee in range(6):
+        #    accessslot = AccessSlot(0, ee)
+        #    self.access_slots[accessslot.name] = accessslot
         for dd in range(2):
             drive = Drive(0, dd)
             self.drives[drive.name] = drive
+        self.running = True
 
         start_tapes = 7
         for sx in range(11):
@@ -157,6 +198,9 @@ class Library:
                     start_tapes -= 1
                     slot.tape = "tape{}".format(start_tapes)
                 self.slots[slot.name] = slot
+                # The library dont know what is in it at startup. The simulator
+                # knows but we dont expose that.
+                self.inventory[slot.name] = False
 
     def get_png_buffer(self):
         """Draw the library and return the picture as a buffer."""
@@ -248,6 +292,7 @@ class Library:
     def task_stop(self, device=None):
         self.running = False
         self.last_error = None
+        self.tasks.clear()
         return True
 
     def task_goto(self, device):
@@ -282,6 +327,7 @@ class Library:
     def task_scan(self, device):
         tape = device.scan()
         self.last_error = "device {} has tape {}".format(device.name, tape)
+        self.inventory[device.name] = tape
         return True
 
     def task_eject(self, device):
@@ -314,10 +360,20 @@ class Library:
 
         return True
 
+    def standard_action_response(self, name, reply_payload=None, **kwargs):
+        out = {"action": name, "params": kwargs}
+        if reply_payload is not None:
+            out[name] = reply_payload
+        return out
+
     def action_scan(self, slot):
         slot_class = self.slots[slot]
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("scan", slot_class))
+        return self.standard_action_response("scan", slot=slot)
+
+    def action_inventory(self):
+        return self.standard_action_response("inventory", reply_payload=self.inventory)
 
     def action_load(self, slot, drive):
         slot_class = self.slots[slot]
@@ -326,7 +382,7 @@ class Library:
         self.tasks.append(("eject", slot_class))
         self.tasks.append(("goto", drive_class))
         self.tasks.append(("enter", drive_class))
-        return "Loading from {} to {}".format(slot, drive)
+        return self.standard_action_response("load", slot=slot, drive=drive)
 
     def action_unload(self, slot, drive):
         slot_class = self.slots[slot]
@@ -336,37 +392,53 @@ class Library:
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("enter", slot_class))
         return "Loading from {} to {}".format(slot, drive)
+        return self.standard_action_response("unload", slot=slot, drive=drive)
 
-    def action_transfer(self, slot, targetslot):
+    def action_transfer(self, source, target):
         def slot_or_access(s):
             if s in self.slots:
                 return self.slots[s]
             else:
                 return self.access_slots[s]
 
-        slot_class = slot_or_access(slot)
-        target_class = slot_or_access(targetslot)
+        slot_class = self.slots[sourcer]
+        target_class = self.slots[target]
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("eject", slot_class))
         self.tasks.append(("goto", target_class))
         self.tasks.append(("enter", target_class))
-        return "Loading from {} to {}".format(slot, targetslot)
+        return self.standard_action_response("transfer", source=source, target=target)
 
-    def action_stop(self):
-        self.running = False
-        return "Stopped"
+    def action_sensors(self):
+        reply = self.sensors.report()
+        return self.standard_action_response("sensors", reply_payload=reply)
 
-    def action_resume(self):
+    def action_state(self):
+        reply = {
+            "locked": not self.running,
+            "busy": bool(self.tasks),
+        }
+        return self.standard_action_response("state", reply_payload=reply)
+
+    def action_config(self, **kwargs):
+        self.config.update(kwargs)
+        reply = self.config.report()
+        return self.standard_action_response("config", reply_payload=reply, **kwargs)
+
+    def action_lock(self):
         self.task_stop()
-        return "Running"
+        return self.standard_action_response("lock")
+
+    def action_unlock(self):
+        self.running = True
+        return self.standard_action_response("unlock")
 
     def action_park(self):
-        self.running = True
         self.task = None
         self.tasks.clear()
         self.tasks.append(("goto", self.slots["s0000"]))
         self.tasks.append(("stop", self.pickers["p"]))
-        return "Parking"
+        return self.standard_action_response("park")
 
 
 async def map_img(request):
@@ -382,16 +454,13 @@ async def map_page(request):
     .flex-container {
         display: flex;
     }
-
     .flex-child {
         flex: 1;
         border: 1px solid blue;
     }
-
     .flex-child:first-child {
         margin-right: 20px;
     }
-
     </style>
     <script type="text/JavaScript">
     var url = "/show.png"; //url to load image from
@@ -436,19 +505,13 @@ async def map_page(request):
         setTimeout("refresh()",refreshInterval);
         updatetxt();
     }
-
     </script>
     <title>JavaScript Refresh Example</title>
     </head>
-
     <body onload="JavaScript:init();">
-
     <div class="flex-container">
-
     <div class="flex-child magenta">
-
     Monitoring
-
     <div>
       <canvas id="canvas"/>
       </div>
@@ -456,12 +519,9 @@ async def map_page(request):
       <textarea id="logTextarea" name="something" rows="8" cols="100">
       This text gets removed</textarea>
       </div>
-
       </div>
-
       <div class="flex-child green">
         Control
-
         <div>
           <iframe name="hiddenFrame"></iframe>
         </div>
@@ -501,19 +561,17 @@ async def map_page(request):
           </form>
         </div>
         <div>
-          <form action="/stop" target="hiddenFrame">
-            <input type="submit" value="stop">
+          <form action="/lock" target="hiddenFrame">
+            <input type="submit" value="lock">
           </form>
-          <form action="/resume" target="hiddenFrame">
-            <input type="submit" value="resume">
+          <form action="/unlock" target="hiddenFrame">
+            <input type="submit" value="unlock">
           </form>
           <form action="/park" target="hiddenFrame">
             <input type="submit" value="park">
           </form>
         </div>
-
       </div>
-
     </div>
     <a href=/api/doc>Swagger API doc</a>
     </body>
@@ -572,15 +630,29 @@ async def handle(request):
 async def start_background_tasks(app):
     app["sim_runner"] = asyncio.Task(sim_runner(app))
 
+
 # Handlers that represent the system we simulate.
 async def load_handle(request):
     """
     ---
-    description: Load media from <slot> to <drive>.
+    description: Load media from slot to drive.
     tags:
     - mtx
     produces:
-    - text/plain
+    - application/json
+    parameters:
+       - in: query
+         name: drive
+         schema:
+           type: string
+         required: true
+         description: The ID of the drive.
+       - in: query
+         name: slot
+         schema:
+           type: string
+         required: true
+         description: The ID of the slot.
     responses:
         "200":
             description: successful operation. Return "" text
@@ -588,17 +660,31 @@ async def load_handle(request):
             description: invalid HTTP Method
     """
     library = request.app["tape_library"]
-    text = library.action_load(**request.query)
-    return web.Response(text=text)
+    data = library.action_load(**request.query)
+    return web.json_response(data)
+
 
 async def unload_handle(request):
     """
     ---
-    description: Unload media from <drive> to <slot>.
+    description: Unload media from drive to slot.
     tags:
     - mtx
     produces:
-    - text/plain
+    - application/json
+    parameters:
+       - in: query
+         name: drive
+         schema:
+           type: string
+         required: true
+         description: The ID of the drive.
+       - in: query
+         name: slot
+         schema:
+           type: string
+         required: true
+         description: The ID of the slot.
     responses:
         "200":
             description: successful operation. Return "" text
@@ -606,20 +692,229 @@ async def unload_handle(request):
             description: invalid HTTP Method
     """
     library = request.app["tape_library"]
-    text = library.action_unload(**request.query)
-    return web.Response(text=text)
+    data = library.action_unload(**request.query)
+    return web.json_response(data)
+
+
+async def transfer_handle(request):
+    """
+    ---
+    description: Move media from source-slot to target-slot.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    parameters:
+       - in: query
+         name: source
+         schema:
+           type: string
+         required: true
+         description: The ID of the source slot.
+       - in: query
+         name: target
+         schema:
+           type: string
+         required: true
+         description: The ID of the target slot.
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_transfer(**request.query)
+    return web.json_response(data)
+
+
+async def park_handle(request):
+    """
+    ---
+    description: Move the picker head to a save position and lock the unit.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_park(**request.query)
+    return web.json_response(data)
+
+
+async def scan_handle(request):
+    """
+    ---
+    description: Perform inventory scan on a slot. Move the picker to the slot
+      barcode scan the tape.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    parameters:
+       - in: query
+         name: slot
+         schema:
+           type: string
+         required: false
+         description: The ID of the source slot.
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_scan(**request.query)
+    return web.json_response(data)
+
+
+async def inventory_handle(request):
+    """
+    ---
+    description: Return the known inventory. Use scan command to scan a slot.
+      For each slot either the tapeid, null, or false is returned. False
+      indicates that the slot has not been scanned, null indicate that the
+      slot has no tape.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_inventory()
+    return web.json_response(data)
+
+async def sensors_handle(request):
+    """
+    ---
+    description: Return sensor values.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    # TODO(MS): Maybe allow some filter. It could be quite a bit of info.
+    data = library.action_sensors(**request.query)
+    return web.json_response(data)
+
+
+async def config_handle(request):
+    """
+    ---
+    description: Return configuration, configuration can also be set.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_config(**request.query)
+    return web.json_response(data)
+
+
+async def state_handle(request):
+    """
+    ---
+    description: Return the library state.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_state()
+    return web.json_response(data)
+
+
+async def lock_handle(request):
+    """
+    ---
+    description: Lock the tape library. No actions will be allowed until unlocked.
+      This action clears the internal work queue.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    library = request.app["tape_library"]
+    data = library.action_lock()
+    return web.json_response(data)
+
+
+async def unlock_handle(request):
+    """
+    ---
+    description: Unlock the tape library. Has no side effect if already unlocked.
+    tags:
+    - mtx
+    produces:
+    - application/json
+    responses:
+        "200":
+            description: successful operation. Return "" text
+        "405":
+            description: invalid HTTP Method
+    """
+    # TODO: Should unlock have a clear_queue argument?
+    library = request.app["tape_library"]
+    data = library.action_unlock()
+    return web.json_response(data)
+
 
 app = web.Application()
 app["tape_library"] = Library()
 app.on_startup.append(start_background_tasks)
 app.add_routes(
     [
+        # Tape library endpoints
+        web.get("/load", load_handle),
+        web.get("/unload", unload_handle),
+        web.get("/transfer", transfer_handle),
+        web.get("/inventory", inventory_handle),
+        web.get("/scan", scan_handle),
+        web.get("/sensors", sensors_handle),
+        web.get("/config", config_handle),
+        web.get("/state", state_handle),
+        web.get("/park", park_handle),
+        web.get("/lock", lock_handle),
+        web.get("/unlock", unlock_handle),
+        # Simulator endpints
         web.get("/", map_page),
         web.get("/show.png", map_img),
         web.get("/log", log_page),
-        web.get("/load", load_handle),
-        web.get("/unload", unload_handle),
-        web.get("/{name}", handle),
+        web.get("/{name}", handle),  # A lazy while working on web UI hack
     ]
 )
 
