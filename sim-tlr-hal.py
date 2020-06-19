@@ -7,6 +7,8 @@ import asyncio
 import io
 import random
 import collections
+import json
+import logging
 
 from aiohttp import web
 from aiohttp_swagger import setup_swagger
@@ -29,6 +31,7 @@ class BaseSlot:
         self.column = column
         self.row = row
         self.name = self._name()
+        self.type = self._type()
         self.tape = None
         self.x = self._x()
         self.y = self._y()
@@ -47,6 +50,14 @@ class BaseSlot:
 
     def _y(self):
         return 16 + self.row * 6
+
+    def _type(self):
+        if self.is_drive:
+            return "drive"
+        elif self.is_picker:
+            return "picker"
+        else:
+            return "slot"
 
     @property
     def colour(self):
@@ -153,7 +164,7 @@ class LibrarySensors:
     def get_all(self):
         out = {}
         for name, sensor in self._sensors.items():
-            out[name] = sensor['value']
+            out[name] = sensor["value"]
         return out
 
     def report(self):
@@ -161,6 +172,15 @@ class LibrarySensors:
 
 
 class Library:
+    """A simulated tape library.
+
+    This is only an example and the internal structure of an tape library
+    controller will be different.
+
+    There is also alot happening here that is only for the simulation and
+    specific to displaying progress.
+    """
+
     def __init__(self):
         self._x = 30
         self._y = 30
@@ -170,7 +190,7 @@ class Library:
         self.drives = {}
         self.access_slots = {}
         self.pickers = {}
-        self.inventory = {}
+        self.inventory = {"picker": {}, "drive": {}, "slot": {}}
         self.last_error = None
         self.task = None
         self.tasks = collections.deque()
@@ -188,6 +208,7 @@ class Library:
         for dd in range(2):
             drive = Drive(0, dd)
             self.drives[drive.name] = drive
+            self.inventory["drive"][drive.name] = None
         self.running = True
 
         start_tapes = 7
@@ -200,7 +221,7 @@ class Library:
                 self.slots[slot.name] = slot
                 # The library dont know what is in it at startup. The simulator
                 # knows but we dont expose that.
-                self.inventory[slot.name] = False
+                self.inventory["slot"][slot.name] = None
 
     def get_png_buffer(self):
         """Draw the library and return the picture as a buffer."""
@@ -280,6 +301,10 @@ class Library:
             elif self._y > self._y_max:
                 self._y = self._y_max
 
+    def check_queue_max_depth_reached(self):
+        """Check that the internal queue has not reached its max."""
+        return False
+
     def info(self):
         """Return an info string."""
         text = "Running={} X={} Y={}".format(self.running, self._x, self._y)
@@ -327,7 +352,7 @@ class Library:
     def task_scan(self, device):
         tape = device.scan()
         self.last_error = "device {} has tape {}".format(device.name, tape)
-        self.inventory[device.name] = tape
+        self.inventory["slot"][device.name] = tape
         return True
 
     def task_eject(self, device):
@@ -337,6 +362,8 @@ class Library:
         try:
             tape = device.eject()
             picker.enter(tape)
+            self.inventory[device.type][device.name] = False
+            self.inventory[picker.type][picker.name] = True
         except LibraryError as error:
             self.last_error = str(error)
             print("!! " + error)
@@ -352,6 +379,8 @@ class Library:
         try:
             tape = picker.eject()
             device.enter(tape)
+            self.inventory[device.type][device.name] = True
+            self.inventory[picker.type][picker.name] = False
         except LibraryError as error:
             self.last_error = str(error)
             print("!! " + error)
@@ -366,8 +395,56 @@ class Library:
             out[name] = reply_payload
         return out
 
+    def get_drive_obj(self, drive):
+        if not drive:
+            error = {
+                "error": {
+                    "description": "no drive specified",
+                    "reason": "notspecified",
+                    "type": "drive",
+                }
+            }
+            raise web.HTTPMisdirectedRequest(text=json.dumps(error))
+        try:
+            drive_class = self.drives[drive]
+        except KeyError:
+            error = {
+                "error": {
+                    "description": "no such drive",
+                    "drive": drive,
+                    "reason": "nosuch",
+                    "type": "drive",
+                }
+            }
+            raise web.HTTPMisdirectedRequest(text=json.dumps(error))
+        return drive_class
+
+    def get_slot_obj(self, slot):
+        if not slot:
+            error = {
+                "error": {
+                    "description": "no slot specified",
+                    "reason": "notspecifiec",
+                    "type": "slot",
+                }
+            }
+            raise web.HTTPMisdirectedRequest(text=json.dumps(error))
+        try:
+            slot_class = self.slots[slot]
+        except KeyError:
+            error = {
+                "error": {
+                    "description": "no such slot",
+                    "slot": slot,
+                    "reason": "nosuch",
+                    "type": "slot",
+                }
+            }
+            raise web.HTTPMisdirectedRequest(text=json.dumps(error))
+        return slot_class
+
     def action_scan(self, slot):
-        slot_class = self.slots[slot]
+        slot_class = self.get_slot_obj(slot)
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("scan", slot_class))
         return self.standard_action_response("scan", slot=slot)
@@ -376,8 +453,8 @@ class Library:
         return self.standard_action_response("inventory", reply_payload=self.inventory)
 
     def action_load(self, slot, drive):
-        slot_class = self.slots[slot]
-        drive_class = self.drives[drive]
+        slot_class = self.get_slot_obj(slot)
+        drive_class = self.get_drive_obj(drive)
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("eject", slot_class))
         self.tasks.append(("goto", drive_class))
@@ -385,13 +462,12 @@ class Library:
         return self.standard_action_response("load", slot=slot, drive=drive)
 
     def action_unload(self, slot, drive):
-        slot_class = self.slots[slot]
-        drive_class = self.drives[drive]
+        slot_class = self.get_slot_obj(slot)
+        drive_class = self.get_drive_obj(drive)
         self.tasks.append(("goto", drive_class))
         self.tasks.append(("eject", drive_class))
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("enter", slot_class))
-        return "Loading from {} to {}".format(slot, drive)
         return self.standard_action_response("unload", slot=slot, drive=drive)
 
     def action_transfer(self, source, target):
@@ -401,8 +477,8 @@ class Library:
             else:
                 return self.access_slots[s]
 
-        slot_class = self.slots[sourcer]
-        target_class = self.slots[target]
+        slot_class = self.get_slot_obj(source)
+        target_class = self.get_slot_obj(target)
         self.tasks.append(("goto", slot_class))
         self.tasks.append(("eject", slot_class))
         self.tasks.append(("goto", target_class))
@@ -414,10 +490,7 @@ class Library:
         return self.standard_action_response("sensors", reply_payload=reply)
 
     def action_state(self):
-        reply = {
-            "locked": not self.running,
-            "busy": bool(self.tasks),
-        }
+        reply = {"locked": not self.running, "busy": bool(self.tasks)}
         return self.standard_action_response("state", reply_payload=reply)
 
     def action_config(self, **kwargs):
@@ -631,6 +704,92 @@ async def start_background_tasks(app):
     app["sim_runner"] = asyncio.Task(sim_runner(app))
 
 
+def tape_library_handler_wrapper(
+    request, action_name, required_params=None, optional_params=None, skip_lock_check=False
+):
+    """This wrapper performs error handling for the API calls.
+
+    Raises
+    ------
+    Multiple exceptions
+
+    see: https://docs.aiohttp.org/en/latest/web_exceptions.html
+    """
+    # Check parameters
+    if required_params is not None:
+        for param in required_params:
+            if param in request.query:
+                if not request.query[param]:
+                    error = {
+                        "error": {
+                            "description": "empty parameter",
+                            "parameter": param,
+                            "reason": "empty",
+                            "type": "parameter",
+                        }
+                    }
+                    raise web.HTTPUnprocessableEntity(text=json.dumps(error))
+            else:
+                error = {
+                    "error": {
+                        "description": "missing parameter",
+                        "parameter": param,
+                        "reason": "undefined",
+                        "type": "parameter",
+                    }
+                }
+                raise web.HTTPUnprocessableEntity(text=json.dumps(error))
+
+    library = request.app["tape_library"]
+    # Check that library is not locked
+    if not library.running and not skip_lock_check:
+        error = {
+            "error": {
+                "description": "Library is locked",
+                "reason": "locked",
+                "type": "lock",
+            }
+        }
+        raise web.HTTPForbidden(text=json.dumps(error))
+    # Check library queue
+    if library.check_queue_max_depth_reached():
+        error = {
+            "error": {
+                "description": "to many requests in progress",
+                "reason": "full",
+                "type": "taskqueue",
+            }
+        }
+        raise web.HTTPTooManyRequests(text=json.dumps(error))
+    # Check if action is availbe, run it, catch errors if any
+    if hasattr(library, "action_" + action_name):
+        try:
+            data = getattr(library, "action_" + action_name)(**request.query)
+        except web.HTTPException:
+            raise
+        except Exception as excpt:
+            logging.exception(action_name)
+            error = {
+                "error": {
+                    "description": str(excpt),
+                    "reason": "internal",
+                    "type": "server",
+                }
+            }
+            raise web.HTTPInternalServerError(text=json.dumps(error))
+
+    else:
+        error = {
+            "error": {
+                "description": "no such method",
+                "reason": "nosuch",
+                "type": "method",
+            }
+        }
+        raise web.HTTPNotImplemented(text=json.dumps(error))
+    return web.json_response(data)
+
+
 # Handlers that represent the system we simulate.
 async def load_handle(request):
     """
@@ -658,10 +817,12 @@ async def load_handle(request):
             description: successful operation. Return "" text
         "405":
             description: invalid HTTP Method
+        "422":
+            description: required parameter not supplied or empty
     """
-    library = request.app["tape_library"]
-    data = library.action_load(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(
+        request, "load", required_params=["slot", "drive"]
+    )
 
 
 async def unload_handle(request):
@@ -691,9 +852,9 @@ async def unload_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_unload(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(
+        request, "unload", required_params=["drive", "slot"]
+    )
 
 
 async def transfer_handle(request):
@@ -723,9 +884,9 @@ async def transfer_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_transfer(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(
+        request, "transfer", required_params=["source", "target"]
+    )
 
 
 async def park_handle(request):
@@ -742,9 +903,7 @@ async def park_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_park(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "park")
 
 
 async def scan_handle(request):
@@ -761,26 +920,24 @@ async def scan_handle(request):
          name: slot
          schema:
            type: string
-         required: false
-         description: The ID of the source slot.
+         required: true
+         description: The ID of the slot to scan.
     responses:
         "200":
             description: successful operation. Return "" text
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_scan(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "scan", required_params=["slot"])
 
 
 async def inventory_handle(request):
     """
     ---
     description: Return the known inventory. Use scan command to scan a slot.
-      For each slot either the tapeid, null, or false is returned. False
-      indicates that the slot has not been scanned, null indicate that the
-      slot has no tape.
+      For each slot either the tapeid, true, false, or null is returned. null
+      indicates that the slot has not been scanned. false indicate that the
+      slot has no tape and true that the slot has a tape but we dont know the ID.
     tags:
     - mtx
     produces:
@@ -791,9 +948,8 @@ async def inventory_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_inventory()
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "inventory", skip_lock_check=True)
+
 
 async def sensors_handle(request):
     """
@@ -809,10 +965,8 @@ async def sensors_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
     # TODO(MS): Maybe allow some filter. It could be quite a bit of info.
-    data = library.action_sensors(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "sensors", skip_lock_check=True)
 
 
 async def config_handle(request):
@@ -829,9 +983,7 @@ async def config_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_config(**request.query)
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "config", skip_lock_check=True)
 
 
 async def state_handle(request):
@@ -848,9 +1000,7 @@ async def state_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_state()
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "state", skip_lock_check=True)
 
 
 async def lock_handle(request):
@@ -868,9 +1018,7 @@ async def lock_handle(request):
         "405":
             description: invalid HTTP Method
     """
-    library = request.app["tape_library"]
-    data = library.action_lock()
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "lock", skip_lock_check=True)
 
 
 async def unlock_handle(request):
@@ -888,9 +1036,7 @@ async def unlock_handle(request):
             description: invalid HTTP Method
     """
     # TODO: Should unlock have a clear_queue argument?
-    library = request.app["tape_library"]
-    data = library.action_unlock()
-    return web.json_response(data)
+    return tape_library_handler_wrapper(request, "unlock", skip_lock_check=True)
 
 
 app = web.Application()
