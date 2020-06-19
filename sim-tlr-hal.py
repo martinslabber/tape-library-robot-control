@@ -522,183 +522,20 @@ async def map_img(request):
 
 
 async def map_page(request):
-    text = """<html>
-    <head>
-    <style>
-    .flex-container {
-        display: flex;
-    }
-    .flex-child {
-        flex: 1;
-        border: 1px solid blue;
-    }
-    .flex-child:first-child {
-        margin-right: 20px;
-    }
-    </style>
-    <script type="text/JavaScript">
-    var url = "/show.png"; //url to load image from
-    var refreshInterval = 1000; //in ms
-    var drawDate = true; //draw date string
-    var img;
-
-    function init() {
-        var canvas = document.getElementById("canvas");
-        var context = canvas.getContext("2d");
-        img = new Image();
-        img.onload = function() {
-            canvas.setAttribute("width", img.width)
-            canvas.setAttribute("height", img.height)
-            context.drawImage(this, 0, 0);
-            if(drawDate) {
-                var now = new Date();
-                var maxWidth = 100;
-                var x = img.width-10-maxWidth;
-                var y = img.height-10;
-            }
-        };
-        refresh();
-    }
-    function updatetxt() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/log');
-    xhr.onload = function() {
-    if (xhr.status === 200) {
-        document.getElementById('logTextarea').value = xhr.responseText;
-    }
-    else {
-        document.getElementById('logTextarea').value = xhr.status;
-    }
-    };
-    xhr.send();
-
-    }
-    function refresh()
-    {
-        img.src = url + "?t=" + new Date().getTime();
-        setTimeout("refresh()",refreshInterval);
-        updatetxt();
-    }
-    </script>
-    <title>JavaScript Refresh Example</title>
-    </head>
-    <body onload="JavaScript:init();">
-    <div class="flex-container">
-    <div class="flex-child magenta">
-    Monitoring
-    <div>
-      <canvas id="canvas"/>
-      </div>
-      <div>
-      <textarea id="logTextarea" name="something" rows="8" cols="100">
-      This text gets removed</textarea>
-      </div>
-      </div>
-      <div class="flex-child green">
-        Control
-        <div>
-          <iframe name="hiddenFrame"></iframe>
-        </div>
-        Actions:
-        <div>
-          <form action="/load" target="hiddenFrame">
-            <input type="submit" value="load">
-            <label for="slot">from slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="drive">to drive</label>
-            <input type="text" id="drive" name="drive" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/unload" target="hiddenFrame">
-            <input type="submit" value="unload">
-            <label for="slot">to slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="drive">from drive</label>
-            <input type="text" id="drive" name="drive" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/transfer" target="hiddenFrame">
-            <input type="submit" value="transfer">
-            <label for="slot">from slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="slot">to slot</label>
-            <input type="text" id="targetslot" name="targetslot" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/scan" target="hiddenFrame">
-            <input type="submit" value="scan">
-            <label for="slot">slot</label>
-            <input type="text" id="slot" name="slot" value="">
-          </form>
-        </div>
-        <div>
-          <form action="/lock" target="hiddenFrame">
-            <input type="submit" value="lock">
-          </form>
-          <form action="/unlock" target="hiddenFrame">
-            <input type="submit" value="unlock">
-          </form>
-          <form action="/park" target="hiddenFrame">
-            <input type="submit" value="park">
-          </form>
-        </div>
-      </div>
-    </div>
-    <a href=/api/doc>Swagger API doc</a>
-    </body>
-    </html>"""
+    with open("index.sim-tlr-hal.html") as fh:
+        text = fh.read()
     return web.Response(text=text.strip(), content_type="text/html")
 
 
 async def sim_runner(app):
-    # your infinite loop here, for example:
     while True:
         app["tape_library"].move()
         await asyncio.sleep(1)
 
 
-async def map_page1(request):
-    """
-    ---
-    description: This end-point allow to test that service is up.
-    tags:
-    - Health check
-    produces:
-    - text/plain
-    responses:
-        "200":
-            description: successful operation. Return "pong" text
-        "405":
-            description: invalid HTTP Method
-    """
-
-    request.app["tape_library"].move()
-    text = """<html><head>
-    <title>HTML in 10 Simple Steps or Less</title>
-    <meta http-equiv="refresh" content="1"> <!-- See the difference? -->
-    </head>
-    <body>
-    <img src=/show.png>"""
-    text += request.app["tape_library"].info()
-    text += """</body></html>"""
-    return web.Response(text=text.strip(), content_type="text/html")
-
-
 async def log_page(request):
     text = request.app["tape_library"].info()
     return web.Response(text=text.strip(), content_type="text/html")
-
-
-async def handle(request):
-    name = request.match_info.get("name", "Anonymous")
-    text = "{} called with\n{}\n".format(name, dict(request.query))
-    library = request.app["tape_library"]
-    if hasattr(library, "action_" + name):
-        text += str(getattr(library, "action_" + name)(**request.query))
-    return web.Response(text=text)
 
 
 async def start_background_tasks(app):
@@ -709,12 +546,7 @@ app = web.Application()
 app["tape_library"] = Library()
 app.on_startup.append(start_background_tasks)
 app.add_routes(
-    [
-        web.get("/", map_page),
-        web.get("/show.png", map_img),
-        web.get("/log", log_page),
-        web.get("/{name}", handle),  # A lazy catch all while working on web UI hack
-    ]
+    [web.get("/", map_page), web.get("/show.png", map_img), web.get("/log", log_page)]
 )
 
 if __name__ == "__main__":
