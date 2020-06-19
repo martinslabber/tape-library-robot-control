@@ -1,0 +1,64 @@
+---
+
+# Descriptions of common components
+components:
+  responses:
+    Reply200Ack:
+      description: Acknowledge that the action is queued.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Reply'
+    HTTPMethodNotAllowed:
+      description: HTTPMethodNotAllowed 405
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    HTTPUnprocessableEntity:
+      description: HTTPUnprocessableEntity 422
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    HTTPMisdirectedRequest:
+      description: HTTPMisdirectedRequest 421
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    # Schema for standard response body
+    Reply:
+      type: object
+      properties:
+        action:
+          type: string
+        params:
+          type: object
+      required:
+        - action
+        - params
+    # Schema for standard error response body
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            description:
+              type: string
+            type:
+              type: string
+            reason:
+              type: string
+            slot:
+              type: string
+            drive:
+              type: string
+          required: 
+            - type
+            - reason
+            - description
+      required:
+        - error
