@@ -202,9 +202,6 @@ class Library:
     def setup(self):
         picker = Picker(0, 0)
         self.pickers["p"] = picker
-        # for ee in range(6):
-        #    accessslot = AccessSlot(0, ee)
-        #    self.access_slots[accessslot.name] = accessslot
         for dd in range(2):
             drive = Drive(0, dd)
             self.drives[drive.name] = drive
@@ -761,7 +758,7 @@ def tape_library_handler_wrapper(
             }
         }
         raise web.HTTPTooManyRequests(text=json.dumps(error))
-    # Check if action is availbe, run it, catch errors if any
+    # Check if action is available, run it, catch errors if any
     if hasattr(library, "action_" + action_name):
         try:
             data = getattr(library, "action_" + action_name)(**request.query)
@@ -892,7 +889,7 @@ async def transfer_handle(request):
 async def park_handle(request):
     """
     ---
-    description: Move the picker head to a save position and lock the unit.
+    description: Move the picker head to a safe position and lock the unit.
     tags:
     - mtx
     produces:
@@ -910,7 +907,7 @@ async def scan_handle(request):
     """
     ---
     description: Perform inventory scan on a slot. Move the picker to the slot
-      barcode scan the tape.
+      and barcode scan the tape.
     tags:
     - mtx
     produces:
@@ -938,6 +935,8 @@ async def inventory_handle(request):
       For each slot either the tapeid, true, false, or null is returned. null
       indicates that the slot has not been scanned. false indicate that the
       slot has no tape and true that the slot has a tape but we dont know the ID.
+      A real tape library might remember a tapeid as it moves from slot to drive, but the
+      simulator is kept dump to simulate the bare minimum required.
     tags:
     - mtx
     produces:
@@ -1056,7 +1055,7 @@ app.add_routes(
         web.get("/park", park_handle),
         web.get("/lock", lock_handle),
         web.get("/unlock", unlock_handle),
-        # Simulator endpints
+        # Simulator endpoints
         web.get("/", map_page),
         web.get("/show.png", map_img),
         web.get("/log", log_page),
