@@ -1,6 +1,9 @@
+<!DOCTYPE html>
 <html>
-    <head>
-    <style>
+<head>
+  <meta name="generator" content=
+  "HTML Tidy for HTML5 for Linux version 5.2.0">
+  <style>
     .flex-container {
         display: flex;
     }
@@ -11,8 +14,8 @@
     .flex-child:first-child {
         margin-right: 20px;
     }
-    </style>
-    <script type="text/JavaScript">
+  </style>
+  <script type="text/JavaScript">
     var url = "/show.png"; //url to load image from
     var refreshInterval = 1000; //in ms
     var drawDate = true; //draw date string
@@ -55,74 +58,73 @@
         setTimeout("refresh()",refreshInterval);
         updatetxt();
     }
-    </script>
-    <title>JavaScript Refresh Example</title>
-    </head>
-    <body onload="JavaScript:init();">
-    <div class="flex-container">
+  </script>
+  <title>JavaScript Refresh Example</title>
+</head>
+<body onload="JavaScript:init();">
+  <div class="flex-container">
     <div class="flex-child magenta">
-    Monitoring
-    <div>
-      <canvas id="canvas"/>
+      Monitoring
+      <div>
+        <canvas id="canvas"></canvas>
       </div>
       <div>
-      <textarea id="logTextarea" name="something" rows="8" cols="100">
-      This text gets removed</textarea>
-      </div>
-      </div>
-      <div class="flex-child green">
-        Control
-        <div>
-          <iframe name="hiddenFrame"></iframe>
-        </div>
-        Actions:
-        <div>
-          <form action="/load" target="hiddenFrame">
-            <input type="submit" value="load">
-            <label for="slot">from slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="drive">to drive</label>
-            <input type="text" id="drive" name="drive" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/unload" target="hiddenFrame">
-            <input type="submit" value="unload">
-            <label for="slot">to slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="drive">from drive</label>
-            <input type="text" id="drive" name="drive" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/transfer" target="hiddenFrame">
-            <input type="submit" value="transfer">
-            <label for="slot">from slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="slot">to slot</label>
-            <input type="text" id="targetslot" name="targetslot" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/scan" target="hiddenFrame">
-            <input type="submit" value="scan">
-            <label for="slot">slot</label>
-            <input type="text" id="slot" name="slot" value="">
-          </form>
-        </div>
-        <div>
-          <form action="/lock" target="hiddenFrame">
-            <input type="submit" value="lock">
-          </form>
-          <form action="/unlock" target="hiddenFrame">
-            <input type="submit" value="unlock">
-          </form>
-          <form action="/park" target="hiddenFrame">
-            <input type="submit" value="park">
-          </form>
-        </div>
+        <textarea id="logTextarea" name="something" rows="8" cols=
+        "100">This text gets removed</textarea>
       </div>
     </div>
-    <a href=/api/doc>Swagger API doc</a>
-    </body>
+    <div class="flex-child green">
+      Control
+      <div>
+        <iframe name="hiddenFrame" id="hiddenFrame"></iframe>
+      </div>Actions:
+      <div>
+        <form action="/load" target="hiddenFrame">
+          <input type="submit" value="load"> <label for="slot">from
+          slot</label> <input type="text" id="slot" name="slot"
+          value=""> <label for="drive">to drive</label>
+          <input type="text" id="drive" name="drive" value=""><br>
+          <br>
+        </form>
+      </div>
+      <div>
+        <form action="/unload" target="hiddenFrame">
+          <input type="submit" value="unload"> <label for="slot">to
+          slot</label> <input type="text" id="slot" name="slot"
+          value=""> <label for="drive">from drive</label>
+          <input type="text" id="drive" name="drive" value=""><br>
+          <br>
+        </form>
+      </div>
+      <div>
+        <form action="/transfer" target="hiddenFrame">
+          <input type="submit" value="transfer"> <label for=
+          "slot">from slot</label> <input type="text" id="slot"
+          name="slot" value=""> <label for="slot">to slot</label>
+          <input type="text" id="targetslot" name="targetslot"
+          value=""><br>
+          <br>
+        </form>
+      </div>
+      <div>
+        <form action="/scan" target="hiddenFrame">
+          <input type="submit" value="scan"> <label for=
+          "slot">slot</label> <input type="text" id="slot" name=
+          "slot" value="">
+        </form>
+      </div>
+      <div>
+        <form action="/lock" target="hiddenFrame">
+          <input type="submit" value="lock">
+        </form>
+        <form action="/unlock" target="hiddenFrame">
+          <input type="submit" value="unlock">
+        </form>
+        <form action="/park" target="hiddenFrame">
+          <input type="submit" value="park">
+        </form>
+      </div>
+    </div>
+  </div><a href="/api/doc">Swagger API doc</a>
+</body>
 </html>
