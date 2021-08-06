@@ -11,8 +11,12 @@ import json
 import logging
 
 from aiohttp import web
-from aiohttp_swagger import setup_swagger
+
+from aiohttp_swagger3 import SwaggerDocs, SwaggerUiSettings
+
 from matplotlib import pyplot as plt
+
+import handlers
 
 
 class LibraryError(Exception):
@@ -363,7 +367,7 @@ class Library:
             self.inventory[picker.type][picker.name] = True
         except LibraryError as error:
             self.last_error = str(error)
-            print("!! " + error)
+            logging.error("!! " + error)
             self.tasks.clear()
             return False
 
@@ -380,7 +384,7 @@ class Library:
             self.inventory[picker.type][picker.name] = False
         except LibraryError as error:
             self.last_error = str(error)
-            print("!! " + error)
+            logging.error("!! " + error)
             self.tasks.clear()
             return False
 
@@ -518,169 +522,15 @@ async def map_img(request):
 
 
 async def map_page(request):
-    text = """<html>
-    <head>
-    <style>
-    .flex-container {
-        display: flex;
-    }
-    .flex-child {
-        flex: 1;
-        border: 1px solid blue;
-    }
-    .flex-child:first-child {
-        margin-right: 20px;
-    }
-    </style>
-    <script type="text/JavaScript">
-    var url = "/show.png"; //url to load image from
-    var refreshInterval = 1000; //in ms
-    var drawDate = true; //draw date string
-    var img;
-
-    function init() {
-        var canvas = document.getElementById("canvas");
-        var context = canvas.getContext("2d");
-        img = new Image();
-        img.onload = function() {
-            canvas.setAttribute("width", img.width)
-            canvas.setAttribute("height", img.height)
-            context.drawImage(this, 0, 0);
-            if(drawDate) {
-                var now = new Date();
-                var maxWidth = 100;
-                var x = img.width-10-maxWidth;
-                var y = img.height-10;
-            }
-        };
-        refresh();
-    }
-    function updatetxt() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/log');
-    xhr.onload = function() {
-    if (xhr.status === 200) {
-        document.getElementById('logTextarea').value = xhr.responseText;
-    }
-    else {
-        document.getElementById('logTextarea').value = xhr.status;
-    }
-    };
-    xhr.send();
-
-    }
-    function refresh()
-    {
-        img.src = url + "?t=" + new Date().getTime();
-        setTimeout("refresh()",refreshInterval);
-        updatetxt();
-    }
-    </script>
-    <title>JavaScript Refresh Example</title>
-    </head>
-    <body onload="JavaScript:init();">
-    <div class="flex-container">
-    <div class="flex-child magenta">
-    Monitoring
-    <div>
-      <canvas id="canvas"/>
-      </div>
-      <div>
-      <textarea id="logTextarea" name="something" rows="8" cols="100">
-      This text gets removed</textarea>
-      </div>
-      </div>
-      <div class="flex-child green">
-        Control
-        <div>
-          <iframe name="hiddenFrame"></iframe>
-        </div>
-        Actions:
-        <div>
-          <form action="/load" target="hiddenFrame">
-            <input type="submit" value="load">
-            <label for="slot">from slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="drive">to drive</label>
-            <input type="text" id="drive" name="drive" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/unload" target="hiddenFrame">
-            <input type="submit" value="unload">
-            <label for="slot">to slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="drive">from drive</label>
-            <input type="text" id="drive" name="drive" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/transfer" target="hiddenFrame">
-            <input type="submit" value="transfer">
-            <label for="slot">from slot</label>
-            <input type="text" id="slot" name="slot" value="">
-            <label for="slot">to slot</label>
-            <input type="text" id="targetslot" name="targetslot" value=""><br><br>
-          </form>
-        </div>
-        <div>
-          <form action="/scan" target="hiddenFrame">
-            <input type="submit" value="scan">
-            <label for="slot">slot</label>
-            <input type="text" id="slot" name="slot" value="">
-          </form>
-        </div>
-        <div>
-          <form action="/lock" target="hiddenFrame">
-            <input type="submit" value="lock">
-          </form>
-          <form action="/unlock" target="hiddenFrame">
-            <input type="submit" value="unlock">
-          </form>
-          <form action="/park" target="hiddenFrame">
-            <input type="submit" value="park">
-          </form>
-        </div>
-      </div>
-    </div>
-    <a href=/api/doc>Swagger API doc</a>
-    </body>
-    </html>"""
+    with open("index.sim-tlr-hal.html") as fh:
+        text = fh.read()
     return web.Response(text=text.strip(), content_type="text/html")
 
 
 async def sim_runner(app):
-    # your infinite loop here, for example:
     while True:
         app["tape_library"].move()
         await asyncio.sleep(1)
-
-
-async def map_page1(request):
-    """
-    ---
-    description: This end-point allow to test that service is up.
-    tags:
-    - Health check
-    produces:
-    - text/plain
-    responses:
-        "200":
-            description: successful operation. Return "pong" text
-        "405":
-            description: invalid HTTP Method
-    """
-
-    request.app["tape_library"].move()
-    text = """<html><head>
-    <title>HTML in 10 Simple Steps or Less</title>
-    <meta http-equiv="refresh" content="1"> <!-- See the difference? -->
-    </head>
-    <body>
-    <img src=/show.png>"""
-    text += request.app["tape_library"].info()
-    text += """</body></html>"""
-    return web.Response(text=text.strip(), content_type="text/html")
 
 
 async def log_page(request):
@@ -688,381 +538,38 @@ async def log_page(request):
     return web.Response(text=text.strip(), content_type="text/html")
 
 
-async def handle(request):
-    name = request.match_info.get("name", "Anonymous")
-    text = "{} called with\n{}\n".format(name, dict(request.query))
-    library = request.app["tape_library"]
-    if hasattr(library, "action_" + name):
-        text += str(getattr(library, "action_" + name)(**request.query))
-    return web.Response(text=text)
-
-
 async def start_background_tasks(app):
     app["sim_runner"] = asyncio.Task(sim_runner(app))
-
-
-def tape_library_handler_wrapper(
-    request, action_name, required_params=None, optional_params=None, skip_lock_check=False
-):
-    """This wrapper performs error handling for the API calls.
-
-    Raises
-    ------
-    Multiple exceptions
-
-    see: https://docs.aiohttp.org/en/latest/web_exceptions.html
-    """
-    # Check parameters
-    if required_params is not None:
-        for param in required_params:
-            if param in request.query:
-                if not request.query[param]:
-                    error = {
-                        "error": {
-                            "description": "empty parameter",
-                            "parameter": param,
-                            "reason": "empty",
-                            "type": "parameter",
-                        }
-                    }
-                    raise web.HTTPUnprocessableEntity(text=json.dumps(error))
-            else:
-                error = {
-                    "error": {
-                        "description": "missing parameter",
-                        "parameter": param,
-                        "reason": "undefined",
-                        "type": "parameter",
-                    }
-                }
-                raise web.HTTPUnprocessableEntity(text=json.dumps(error))
-
-    library = request.app["tape_library"]
-    # Check that library is not locked
-    if not library.running and not skip_lock_check:
-        error = {
-            "error": {
-                "description": "Library is locked",
-                "reason": "locked",
-                "type": "lock",
-            }
-        }
-        raise web.HTTPForbidden(text=json.dumps(error))
-    # Check library queue
-    if library.check_queue_max_depth_reached():
-        error = {
-            "error": {
-                "description": "to many requests in progress",
-                "reason": "full",
-                "type": "taskqueue",
-            }
-        }
-        raise web.HTTPTooManyRequests(text=json.dumps(error))
-    # Check if action is available, run it, catch errors if any
-    if hasattr(library, "action_" + action_name):
-        try:
-            data = getattr(library, "action_" + action_name)(**request.query)
-        except web.HTTPException:
-            raise
-        except Exception as excpt:
-            logging.exception(action_name)
-            error = {
-                "error": {
-                    "description": str(excpt),
-                    "reason": "internal",
-                    "type": "server",
-                }
-            }
-            raise web.HTTPInternalServerError(text=json.dumps(error))
-
-    else:
-        error = {
-            "error": {
-                "description": "no such method",
-                "reason": "nosuch",
-                "type": "method",
-            }
-        }
-        raise web.HTTPNotImplemented(text=json.dumps(error))
-    return web.json_response(data)
-
-
-# Handlers that represent the system we simulate.
-async def load_handle(request):
-    """
-    ---
-    description: Load media from slot to drive.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    parameters:
-       - in: query
-         name: drive
-         schema:
-           type: string
-         required: true
-         description: The ID of the drive.
-       - in: query
-         name: slot
-         schema:
-           type: string
-         required: true
-         description: The ID of the slot.
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-        "422":
-            description: required parameter not supplied or empty
-    """
-    return tape_library_handler_wrapper(
-        request, "load", required_params=["slot", "drive"]
-    )
-
-
-async def unload_handle(request):
-    """
-    ---
-    description: Unload media from drive to slot.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    parameters:
-       - in: query
-         name: drive
-         schema:
-           type: string
-         required: true
-         description: The ID of the drive.
-       - in: query
-         name: slot
-         schema:
-           type: string
-         required: true
-         description: The ID of the slot.
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(
-        request, "unload", required_params=["drive", "slot"]
-    )
-
-
-async def transfer_handle(request):
-    """
-    ---
-    description: Move media from source-slot to target-slot.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    parameters:
-       - in: query
-         name: source
-         schema:
-           type: string
-         required: true
-         description: The ID of the source slot.
-       - in: query
-         name: target
-         schema:
-           type: string
-         required: true
-         description: The ID of the target slot.
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(
-        request, "transfer", required_params=["source", "target"]
-    )
-
-
-async def park_handle(request):
-    """
-    ---
-    description: Move the picker head to a safe position and lock the unit.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(request, "park")
-
-
-async def scan_handle(request):
-    """
-    ---
-    description: Perform inventory scan on a slot. Move the picker to the slot
-      and barcode scan the tape.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    parameters:
-       - in: query
-         name: slot
-         schema:
-           type: string
-         required: true
-         description: The ID of the slot to scan.
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(request, "scan", required_params=["slot"])
-
-
-async def inventory_handle(request):
-    """
-    ---
-    description: Return the known inventory. Use scan command to scan a slot.
-      For each slot either the tapeid, true, false, or null is returned. null
-      indicates that the slot has not been scanned. false indicate that the
-      slot has no tape and true that the slot has a tape but we dont know the ID.
-      A real tape library might remember a tapeid as it moves from slot to drive, but the
-      simulator is kept dump to simulate the bare minimum required.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(request, "inventory", skip_lock_check=True)
-
-
-async def sensors_handle(request):
-    """
-    ---
-    description: Return sensor values.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    # TODO(MS): Maybe allow some filter. It could be quite a bit of info.
-    return tape_library_handler_wrapper(request, "sensors", skip_lock_check=True)
-
-
-async def config_handle(request):
-    """
-    ---
-    description: Return configuration, configuration can also be set.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(request, "config", skip_lock_check=True)
-
-
-async def state_handle(request):
-    """
-    ---
-    description: Return the library state.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(request, "state", skip_lock_check=True)
-
-
-async def lock_handle(request):
-    """
-    ---
-    description: Lock the tape library. No actions will be allowed until unlocked.
-      This action clears the internal work queue.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    return tape_library_handler_wrapper(request, "lock", skip_lock_check=True)
-
-
-async def unlock_handle(request):
-    """
-    ---
-    description: Unlock the tape library. Has no side effect if already unlocked.
-    tags:
-    - mtx
-    produces:
-    - application/json
-    responses:
-        "200":
-            description: successful operation. Return "" text
-        "405":
-            description: invalid HTTP Method
-    """
-    # TODO: Should unlock have a clear_queue argument?
-    return tape_library_handler_wrapper(request, "unlock", skip_lock_check=True)
 
 
 app = web.Application()
 app["tape_library"] = Library()
 app.on_startup.append(start_background_tasks)
 app.add_routes(
-    [
-        # Tape library endpoints
-        web.get("/load", load_handle),
-        web.get("/unload", unload_handle),
-        web.get("/transfer", transfer_handle),
-        web.get("/inventory", inventory_handle),
-        web.get("/scan", scan_handle),
-        web.get("/sensors", sensors_handle),
-        web.get("/config", config_handle),
-        web.get("/state", state_handle),
-        web.get("/park", park_handle),
-        web.get("/lock", lock_handle),
-        web.get("/unlock", unlock_handle),
-        # Simulator endpoints
-        web.get("/", map_page),
-        web.get("/show.png", map_img),
-        web.get("/log", log_page),
-        web.get("/{name}", handle),  # A lazy while working on web UI hack
-    ]
+    [web.get("/", map_page), web.get("/show.png", map_img), web.get("/log", log_page)]
 )
 
 if __name__ == "__main__":
-    setup_swagger(app)
+    swagger = SwaggerDocs(
+        app,
+        swagger_ui_settings=SwaggerUiSettings(path="/api/doc"),
+        title="Tape Library Robot API",
+        version="1.0.0",
+        components="swagger.yaml",
+    )
+    swagger.add_routes(
+        [
+            web.get("/load", handlers.load_handle),
+            web.get("/unload", handlers.unload_handle),
+            web.get("/transfer", handlers.transfer_handle),
+            web.get("/inventory", handlers.inventory_handle),
+            web.get("/scan", handlers.scan_handle),
+            web.get("/sensors", handlers.sensors_handle),
+            web.get("/config", handlers.config_handle),
+            web.get("/state", handlers.state_handle),
+            web.get("/park", handlers.park_handle),
+            web.get("/lock", handlers.lock_handle),
+            web.get("/unlock", handlers.unlock_handle),
+        ]
+    )
     web.run_app(app)
